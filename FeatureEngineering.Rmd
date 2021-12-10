@@ -83,6 +83,23 @@ for(i in 1:length((StructuredData$genres))){
   if(grepl("War", StructuredData$genres[i], fixed = TRUE)){StructuredData[i, "War"] = TRUE} else{StructuredData[i, "War"] = FALSE}
 }
 
+oneHot <- function(col){
+  newCol <- c()
+  for(var in col){
+    if(var){
+      newCol <- c(newCol,1)
+    }
+    else{
+      newCol <- c(newCol,0)
+    }
+  }
+}
+
+StructuredData$original_language <- as.factor(StructuredData$original_language)
+
+str(StructuredData)
+
+
 str(Movies)
 Movies <- StructuredData[,-c(2,7)]
 Titles <- StructuredData[, -2]

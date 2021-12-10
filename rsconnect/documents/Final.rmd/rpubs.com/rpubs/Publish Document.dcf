@@ -1,0 +1,11 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/845176/61b286363dcc4587b963943b14c787af
+bundleId: https://api.rpubs.com/api/v1/document/845176/61b286363dcc4587b963943b14c787af
+url: http://rpubs.com/Xander_Atalay/845176
+when: 1639095694.17311
+lastSyncTime: 1639095694.17312

@@ -12,11 +12,22 @@ output:
 editor_options:
   chunk_output_type: inline
 ---
-## Introduction:
+<center><img src="https://broomearts.org/wp-content/uploads/2019/03/filmreel.jpg"></center>
 
-### Our group is taking a look at a movie dataset with metadata including reveneu and rating. We're going to be exploring this data and the relationships within it, and creating models that try to predict whether a movie will suceed or not based on factors such as genre, budget, langauge, and popularity.{.unlisted .unnumbered}
+## Introduction
+
+### Background and Question
+  Our group is taking a look at [The Movie Dataset](https://www.kaggle.com/rounakbanik/the-movies-dataset/metadata) from Kaggle.com. This dataset contains "Metadata on over 45,000 movies. 26 million ratings from over 270,000 users." The metadata for movies include their runtime, genres, ratings, revenue, budget, and more. We're going to be exploring this data and the relationships within it, with the primary goal of creating models that give us insight into what makes a move successful, including the ability to predict the success of a movie.
+  
+  We can define success depending on our buisness metric of intrest. This buisness metric depends on what we, as a production company or movie studio, are looking to accomplish. If we want to create award winning movies, we should focus on reviews. If we want to make a lot of money, we can shift our focus to revenue. How we classify movies will be dependent on the metric we're looking at and the models we make. Of course, the key to a good movie, as described by filmdraft.com, is the combination of story, characters, actors, directors, and post-production - any of which could make or break a film. That said, it would be interesting to know whether or not a space western is less likely to succeed critically than a drama, so we can still make those general associations with this data.
+  
+### Cleaning the data
+
+  The dataset that we're starting out with is not ready for a deep analysis, and you can see the steps I took to clean it in the FeatureEngineering.rmd in our project repository. Essentially, the genres parameter was formatted such that we wouldn't be able to use it as a factor, as it was originally a character list of the different genres within a movie and, there being 24 genres, the number of combinations was immense. Thus, we instead one-hot encoded each genre, which gives us greater flexibility with our exploratory data analysis and will make our models far more efficient.
+
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, cache = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, cache = TRUE)
 ```
 
 ```{r Libraries, include=FALSE}
@@ -43,63 +54,87 @@ library(MLmetrics)
 library(ROCR)
 library(mltools)
 library(data.table)
+library("ggpubr")
+theme_set(
+  theme_bw() +
+    theme(legend.position = "top")
+  )
 ```
+
+## Exploratory Data Analysis {.tabset}
+
+I have created different tabs to organize a data exploration approach. In "The Dataset", you can read about the structure of the feature engineered dataset that we'll be using for all of our models. In "Parameters of Interest", I added additional tabs to look more in-depth with the parameters that I think are most important to our dataset, including the parameters that we're using to quantify success (revenue and vote_average). In "Evaluating Relationships", I make linear models that assess the relationships between our success parameters and our features, which won't be used to actually determine the success of movies but will instead give us an idea of the significant relationships in our data so that we have an idea of what to optimize in our models. Finally, I'm interested in seeing if movies of specific genres tend to cluster together, so I'll be making a rough clustering model just to give us a better understanding of these data.
 
 ```{r Loading in Data}
 Movies <- read.csv("./Movies.csv")
 Titles <- read.csv("./Titles.csv")
 ```
 
-## Initial Data Exploration {.tabset}
-
+### HIDE
 ### The Dataset
+
+Once again, we're getting this data from [The Movie Dataset](https://www.kaggle.com/rounakbanik/the-movies-dataset/metadata) from Kaggle.com. After feature engineering our data, this is the structure of our dataset: 
 ```{r Exploring Data I}
-cat("Here are the parameters that we have for each movie: \n")
-colnames(Titles)
-cat("\n")
-cat("The general structure of the data frame is: \n")
 str(Titles)
-cat("As you can see, we've one-hot encoded the genres of the movies!")
 ```
+For the models themselves, we'll make sure to remove the movie titles and parameters that we're looking at. Otherwise, it's clear that a majority of columns in this data frame are genre columns, so I hope that they turn out to be good predictors of our success metrics. Another success metric we could have looked at is popularity, but I think that most studios are more interested in making money and having critical acclaim than just getting views, so we're only going to look at those two metrics for now.
 
 ### Parameters of Interest {.tabset}
 
-#### Relative Sucess
-```{r Exploring Data II}
-cat("We have three metrics we can use to define a movie's success based on what we're trying to achieve as a production company. If we're Disney, we're probably most concenred with how much money a movie is making, or the reveneu: ")
-hist(Movies$revenue, breaks = 10)
-cat("This doesn't really get us much because, expectedly, the amount of money that a movie can make has a huge range with only few reaching the billion dollar mark. Looking at the log of the reveneu gives us a better spread:")
-(ggplot(Movies, aes(x = log(revenue))) 
+#### Relative success
+Let's start by analyzing the metrics we're using to determine whether a movie is good or not, which are revenue and vote_average. Again, the metric we use for our model depends on our aims as a studio. If we want to make money, we'll optimize our model to predict revenue. If we want to make art, we'll go for vote_average instead.
+
+Here are some histograms for revenue and vote_average:
+```{r Revenue Plot I}
+(ggplot(Movies, aes(x = (revenue))) 
   + geom_histogram(bins = 50)
   + geom_histogram(bins = 50, color = "black", fill = cm.colors(50, alpha = 0.75))) 
+```
 
-cat("The other metric we can look at for sucess is average vote, which we might be concerned with if we were indie filmakers or going for oscars!")
+The original revenue histogram doesn't really show us much because, as expected, the amount of money that a movie can make has a huge range with only few reaching the billion dollar mark. There also appears to be a lot of missing data. Therefore, it might be more helpful to visualize the parameter in log form, which will bring all of our values to a more similar range.
 
+```{r Revenue Plot II}
+Movies <- Movies[Movies$revenue != 0,]
+Movies <- Movies[Movies$vote_average != 0,]
+
+Titles <- Titles[Titles$revenue != 0,]
+Titles <- Titles[Titles$vote_average != 0,]
+
+(ggplot(Movies, aes(x = log(revenue))) 
+  + geom_histogram(bins = 50)
+  + geom_histogram(bins = 50, color = "black", fill = cm.colors(50))) 
+```
+When we look at the log of revenue, we can see that there is a much better distribution, but we lose a lot of data because of all of those zeros. Regardless, we should have enough here still to make a strong model.
+
+Next, let's take a look at vote_average. Here is a histogram of the average vote a movie received, again taking out any missing values. I'll also include a 5 number summary because the numbers are easier to interpret than revenue:
+
+```{r vote_average hist}
 (ggplot(Movies, aes(x = vote_average)) 
   + geom_histogram(bins = 50, color = "black", fill = cm.colors(50))) 
 
-cat("Oof why are there so many movies with 0... maybe we should take that out before we begin.")
+summary(Movies$vote_average)
+```
+This is a pretty interesting distribution, and I think it's particularly funny that the average rating is 6.25 (as opposed to 5).
 
-cat("Finally, let's see how these sucess metrics are related with a quick linear model")
+Finally, we can make a linear regression model and create a plot to explore how these two metrics of success are related, and make sure that they are not just proxies for one another.
 
-ggplot(Movies, aes(x = vote_average, y = log(Movies$revenue))) + geom_point(size = 0.5, alpha = 0.5) + stat_smooth(method = "lm")
+```{r vote_average vs revenue}
+(ggplot(Movies, aes(x = vote_average, y = log(Movies$revenue), alpha = revenue)) + 
+   geom_point(size = 0.5, alpha = 0.5) + 
+   stat_smooth(method = "lm", color = "maroon") + 
+   xlab("Rating") + 
+   ylab("Revenue"))
 
-summary(lm(Movies$vote_average ~ Movies$revenue))
-
-
-
+summary(lm(Movies$revenue ~ Movies$vote_average))
 ```
 
+As expected, we see a significant relationship between these two parameters, but the R squared is small enough that they are still distinct enough to try to optimize seperately. With that, let's take a look at some of the other metrics in our dataset that will help us build powerful predictive models.
+
+
+
 #### Genres
-```{r Exploring Data III}
-cat("This is one of the more interesting metrics we have acess to, and I'm excited to start looking into what the most popular genres / genre combinations are.\n")
-cat("First let's just take a look at what I think will be the most popular genres and then we can look at exactly how common each one is.")
-cat("Action movies:")
-(table(Movies$Action))[2]
-cat("Adventure movies:")
-(table(Movies$Adventure))[2]
-cat("Romance movies:")
-(table(Movies$Romance))[2]
+This is one of the more interesting metrics we have acess to, and I'm excited to start looking into what the most popular genres / genre combinations are. To start, let's just take a look at the relative proportion of each genre in this dataset. Keep in mind that a movie can have more than one genre. Here is a 
+```{r Genre DF}
 
 genres <- colnames(Movies)[8:24]
 counts <- c()
@@ -107,76 +142,96 @@ gmean <- c()
 grevMean <- c()
 gsd <- c()
 grevSD <- c()
-
 for(val in genres){
   genreDF <- Movies[Movies[,val] == TRUE,]
   genreNum <- length(genreDF$budget)
-  cat(paste(val, ": \n", ""))
-  cat(paste(genreNum, "\n \n", ""))
   counts <- c(counts, genreNum)
   gmean <- c(gmean, mean(genreDF$vote_average))
   gsd <- c(gsd, sd(genreDF$vote_average))
   grevMean <- c(grevMean, mean(genreDF$revenue))
   grevSD <- c(grevSD, sd(genreDF$revenue))
 }
-
 genres <- data.frame(genres, counts, gmean, gsd, grevMean, grevSD)
 
-cat("Here are the number of movies in each genre:")
-ggplot(genres, aes(x = genres, y = counts, fill = counts)) + geom_bar(stat = "identity") + scale_color_continuous() + theme(axis.text.x = element_text(angle = -90))
+```
 
+```{r Genre Frequency}
 
-cat("And here's a plot of the average rating for each genre: ")
+(ggplot(genres, aes(x = genres, y = counts, fill = counts)) + 
+   geom_bar(stat = "identity") + 
+   scale_color_continuous() + 
+   theme(axis.text.x = element_text(angle = -90)) + 
+   xlab("Genre") + 
+   ylab("Frequency"))
+
+```
+As you can see, the most movies we have of any genre we have in this dataset is dramas, which makes some sense because it's a genre that can be combined with almost any other. Now that we have a sense of how popular each genre is, let's take a look at if the type of genre a move is has any effect on its rating.
+
+Here is a plot of the genres and their average rating:
+
+```{r Genre Ratings}
 (ggplot(genres, aes(x = genres, y = gmean, fill = gmean)) 
   + geom_bar(stat="identity", color="black", position=position_dodge()) 
   + geom_errorbar(aes(ymin=gmean-gsd, ymax=gmean+gsd), width=.2, position=position_dodge(.9)) 
-  + theme(axis.text.x = element_text(angle = -90)))
+  + theme(axis.text.x = element_text(angle = -90)) + 
+   xlab("Genre") + 
+   ylab("Average Rating"))
+```
 
-cat("And now reveneu: ")
+It doesn't look like there is a ton of significance, but we can still test each genre individually as having a relationship with average vote. For example, here is a lm of the horror genre:
+
+```{r Genre Horror LM}
+summary(lm(Movies$vote_average ~ Movies$Horror))
+```
+Interestingly, we do see significance, which means that this genre will help our model determine whether or not a movie will have good votes. Now, let's see how the average revenue of each genre compares to one another.
+
+```{r Genre Revenue}
 (ggplot(genres, aes(x = genres, y = grevMean, fill = grevMean)) 
   + geom_bar(stat="identity", color="black", position=position_dodge()) 
-  + theme(axis.text.x = element_text(angle = -90)))
+  + theme(axis.text.x = element_text(angle = -90)) + 
+   xlab("Genre") + 
+   ylab("Revenue"))
+```
+We see some more interesting data here, and some of it can be expected. Genres like action, adventure, fantasy, and science fiction are generally the genres that we see in blockbuster movies, or movies that generate a huge amount of revenue. Documentaries, on the other hand, normally aren't even released in theaters, so we would expect much less revenue from them.
 
 
-cat("And here's a quick linear regression model to test for any significance for documetary: ")
-summary(lm(Movies$vote_average ~ Movies$Documentary))
-summary(lm(Movies$revenue ~ Movies$Documentary))
+#### Budget
+Finally, let's take a look at the budget data we have, which I expect to be a big predictor of average vote and even more so revenue.
 
-cat("We definitely see signficance! This suggests that these genre metrics may help us build models to predict which movies will perform best.")
+```{r Budget Plot I}
+(ggplot(Movies, aes(x = (budget))) 
+  + geom_histogram(bins = 50)
+  + geom_histogram(bins = 50, color = "black", fill = cm.colors(50, alpha = 0.75))) 
 ```
 
-### Evaluating Relationships
-```{r Exploring Data IV}
-cat("Finally, before we get into the models, we'll check for some more significance across the other parameters. \n")
+As you can see, we've already standardized the variable. Just like revenue, however, we can see the enormous range that this metric has, which makes looking at the log useful.
 
-cat("Movie Language:")
-summary(lm(Movies$vote_average ~ Movies$original_language))
-
-cat("Budget:")
-ggplot(Movies, aes(x = budget, y = vote_average)) + geom_point(size = 0.5) + geom_smooth(method = lm)
+```{r Budget Plot II}
+(ggplot(Movies, aes(x = log(budget))) 
+  + geom_histogram(bins = 50)
+  + geom_histogram(bins = 50, color = "black", fill = cm.colors(50))) 
+```
+Finally, lets take a look at the relationship between budget and our two metrics of success.
+```{r vote_average vs budget}
 summary(lm(Movies$vote_average ~ Movies$budget))
 
-cat("It looks like budget and movie langauge are both also solid predictors of a movie's sucess. Let's see how our models do now:")
-
+summary(lm(Movies$revenue ~ Movies$budget))
 ```
+Interestingly enough, we don't see a significant relationship between budget and vote_average, but as expected, there is a strong relationship between budget and revenue. This means that the models we build that optimize for revenue will rely on the budget variable much more than the models that optimize average vote.
 
 
-
-### Clustering Approach
+### Clustering
+As the final part of our exploratory data analysis, I'm interested in seeing if our data clusters into the four most popular genres: Action, Drama, Comedy, and Thriller. I'll start by including only data where at least one of those things is true.
 ```{r}
-cat("We won't put too much time into this model because I don't anticipate we'll find much clustering, but it's still worth looking into!")
-Movie_drop <- c("vote_average", "revenue", "original_language")
-Movie_Cluster_Data <- Movies[, !(names(Movies)) %in% Movie_drop]
+clusterGenres <- Movies[(Movies$Action | Movies$Comedy | Movies$Drama | Movies$Thriller),]
+Movie_drop <- c("vote_average", "revenue", "original_language", "Action", "Drama", "Comedy", "Thriller")
+Movie_Cluster_Data <- clusterGenres[, !(names(clusterGenres)) %in% Movie_drop]
 
-str(Movie_Cluster_Data)
-
-cat("Let's see if we have any clustering by genre, we have a lot of genres so we'll only use the most popular ones.")
 set.seed(1)
 kmeans_Movies = kmeans(Movie_Cluster_Data, centers = 4, algorithm = "Lloyd")
-
 Movie_Clusters = as.factor(kmeans_Movies$cluster)
 
-(ggplot(Movies, aes(y = revenue, 
+Action <- (ggplot(clusterGenres, aes(y = revenue, 
                 x = vote_average,
                 shape = Movie_Clusters,
                 color = Action)) + 
@@ -186,8 +241,7 @@ Movie_Clusters = as.factor(kmeans_Movies$cluster)
                      values = c("circle open", "circle", "square open", "square filled")) +
   theme_light())
 
-
-(ggplot(Movies, aes(y = revenue, 
+Drama <- (ggplot(clusterGenres, aes(y = revenue, 
                 x = vote_average,
                 shape = Movie_Clusters,
                 color = Drama)) + 
@@ -197,17 +251,7 @@ Movie_Clusters = as.factor(kmeans_Movies$cluster)
                      values = c("circle open", "circle", "square open", "square filled")) +
   theme_light())
 
-(ggplot(Movies, aes(y = revenue, 
-                x = vote_average,
-                shape = Movie_Clusters,
-                color = Drama)) + 
-  geom_point(size = 1) +
-  scale_shape_manual(name = "Cluster", 
-                     labels = c("Cluster 1", "Cluster 2", "Cluster 3", "Cluster 4"),
-                     values = c("circle open", "circle", "square open", "square filled")) +
-  theme_light())
-
-(ggplot(Movies, aes(y = revenue, 
+Comedy <- (ggplot(clusterGenres, aes(y = revenue, 
                 x = vote_average,
                 shape = Movie_Clusters,
                 color = Comedy)) + 
@@ -217,23 +261,44 @@ Movie_Clusters = as.factor(kmeans_Movies$cluster)
                      values = c("circle open", "circle", "square open", "square filled")) +
   theme_light())
 
+Thriller <- (ggplot(clusterGenres, aes(y = revenue, 
+                x = vote_average,
+                shape = Movie_Clusters,
+                color = Thriller)) + 
+  geom_point(size = 1) +
+  scale_shape_manual(name = "Cluster", 
+                     labels = c("Cluster 1", "Cluster 2", "Cluster 3", "Cluster 4"),
+                     values = c("circle open", "circle", "square open", "square filled")) +
+  theme_light())
+
+Clusterfigure <- ggarrange(Action, Drama, Comedy, Thriller,
+                    labels = c("Action", "Drama", "Comedy","Thriller"),
+                    ncol = 2, nrow = 2)
+
+Clusterfigure
 
 ```
 
+Unfortunately, this figure becomes a bit garbled and difficult to analyze. That said, we can definitely see that each of these genres occupies a different space on the plot of average vote vs revenue. Action movies tend to have higher revenue and average ratings with dramas being rated higher but not making as much money. Comedy and Thrillers are more spread out, it appears that comedy doesn't make much money or get high votes, which makes sense as they're mostly made for entertainment factor instead of being huge hits or award winning films.
+
 
 ## KNN for Average Vote {.tabset}
+
+### Hide
 
 ### Preparing Data
 ```{r Preparing Data, echo=TRUE}
 Movies <- read.csv('./Movies.csv')
 str(Movies) 
+Movies$vote_average
 # Deleting rows where vote_average = 0 as a flaw in the data
 Movies <- Movies[Movies$vote_average !=0,]
 # Converting rating into a factor, with level 1 greater than 7.5 and 0 otherwise.
 Movies$Rating <- 0
-Movies[Movies$vote_average > 7.5,]$Rating <- 1
-Movies[Movies$vote_average < 7.5,]$Rating <- 0
-Movies <- Movies[,-7]
+Movies[Movies$vote_average > 6.5,]$Rating <- 1
+Movies[Movies$vote_average <= 6.5,]$Rating <- 0
+Movies <- Movies[,-6]
+str(Movies)
 ```
 
 
@@ -241,6 +306,7 @@ Movies <- Movies[,-7]
 ```{r Zoe Data Partitioning}
 # Determining data composition and baseline/prevalence
 (table(Movies$Rating)[2])/(sum(table(Movies$Rating)))
+Movies$Rating
 # Partition into train, tune, and test
 part_index_1 <- createDataPartition(Movies$Rating,
                                            times=1,
@@ -248,19 +314,11 @@ part_index_1 <- createDataPartition(Movies$Rating,
                                            groups=1,
                                            list=FALSE)
 train <- Movies[part_index_1,]
-tune_and_test <- Movies[-part_index_1, ]
-# Call the createDataPartition again to create the tune set 
-tune_and_test_index <- createDataPartition(tune_and_test$Rating,
-                                           p = .5,
-                                           list = FALSE,
-                                           times = 1)
-tune <- tune_and_test[tune_and_test_index, ]
-test <- tune_and_test[-tune_and_test_index, ]
+test <- Movies[-part_index_1, ]
 dim(train)
-dim(tune)
 dim(test)
 ```
-This prevalence of 8.1% shows the random chance of determining a highly rated movie is about 92%, as reflected by the actual prevalence of highly rated movies (above a 7.5 vote_average).
+This prevalence of 34% shows the random chance of determining a highly rated movie, as reflected by the actual prevalence of highly rated movies (above a 6.5 vote_average).
 
 ### Selecting "k"
 ```{r Selecting K}
@@ -286,9 +344,9 @@ set.seed(3001)
 knn_different_k = sapply(seq(1, 21, by = 2),  #<- set k to be odd number from 1 to 21
                          function(x) chooseK(x, 
                           train_set = train[, c("runtime", "budget", "Animation", "Comedy", "Adventure", "Fantasy", "Drama", "Romance", "Action", "Crime", "Thriller", "History", "ScienceFiction", "Mystery", "Western", "Horror", "Documentary", "Music", "War")],
-                          val_set = tune[, c("runtime", "budget", "Animation", "Comedy", "Adventure", "Fantasy", "Drama", "Romance", "Action", "Crime", "Thriller", "History", "ScienceFiction", "Mystery", "Western", "Horror", "Documentary", "Music", "War")],
+                          val_set = test[, c("runtime", "budget", "Animation", "Comedy", "Adventure", "Fantasy", "Drama", "Romance", "Action", "Crime", "Thriller", "History", "ScienceFiction", "Mystery", "Western", "Horror", "Documentary", "Music", "War")],
                           train_class = train$Rating,
-                          val_class = tune$Rating))
+                          val_class = test$Rating))
 class(knn_different_k)#matrix 
 head(knn_different_k)
 knn_different_k = data.frame(k = knn_different_k[1,],
@@ -300,7 +358,7 @@ k_plot <- ggplot(knn_different_k,aes(x = k, y = accuracy)) +
   ggtitle("KNN Elbow Chart")
 k_plot
 ```
-A KNN Elbow Chart was created above plotting k against accuracy to determine that 7 nearest neighbors seems to be the best choice for k because the model's accuracy peaks at 90% when k = 5 before trailing off as k increases.
+A KNN Elbow Chart was created above plotting k against accuracy to determine that 3 nearest neighbors seems to be the best choice for k because the model's accuracy peaks at 91% when k = 3 before trailing off as k increases.
 
 
 ### Training the K Classifier
@@ -310,9 +368,9 @@ A KNN Elbow Chart was created above plotting k against accuracy to determine tha
 set.seed(3001)
 # Target variables include runtime, budget, and genre. Revenue and popularity were excluded as these are highly correlated to rating, and are only known after the movie is released, which isn't helpful for our business question of movie production.
 movies_3NN <-  knn(train = train[, c("runtime", "budget", "Animation", "Comedy", "Adventure", "Fantasy", "Drama", "Romance", "Action", "Crime", "Thriller", "History", "ScienceFiction", "Mystery", "Western", "Horror", "Documentary", "Music", "War")],#<- training set cases
-               test = tune[, c("runtime", "budget", "Animation", "Comedy", "Adventure", "Fantasy", "Drama", "Romance", "Action", "Crime", "Thriller", "History", "ScienceFiction", "Mystery", "Western", "Horror", "Documentary", "Music", "War")],    #<- test set cases
+               test = test[, c("runtime", "budget", "Animation", "Comedy", "Adventure", "Fantasy", "Drama", "Romance", "Action", "Crime", "Thriller", "History", "ScienceFiction", "Mystery", "Western", "Horror", "Documentary", "Music", "War")],    #<- test set cases
                cl = train$Rating,#<- category for true classification
-               k = 7,#<- number of neighbors considered
+               k = 3,#<- number of neighbors considered
                use.all = TRUE,
                prob = TRUE) #<- control ties between class assignments If true, all distances equal to the kth largest are included
 # Viewing the output:
@@ -326,7 +384,7 @@ length(movies_3NN)
 # How does the kNN classification compare to the true class?
 # Combining the predictions from movies_3NN to the original data set.
 kNN_res = table(movies_3NN,
-                tune$Rating)
+                test$Rating)
 kNN_res
 sum(kNN_res)  
 # TP TN
@@ -336,12 +394,12 @@ kNN_acc = sum(kNN_res[row(kNN_res) == col(kNN_res)]) / sum(kNN_res)
 kNN_acc
 # Our KNN model returns a 90 % accuracy rate of predicting a highly rated move (with an average vote above 7.5), which is a great improvement from the baserate of 8.1%.
 str(movies_3NN)
-str(as.factor((tune$Rating)))
-confusionMatrix(as.factor(movies_3NN), as.factor(tune$Rating), positive = "1", dnn=c("Prediction", "Actual"), mode = "sens_spec")
+str(as.factor((test$Rating)))
+confusionMatrix(as.factor(movies_3NN), as.factor(test$Rating), positive = "1", dnn=c("Prediction", "Actual"), mode = "sens_spec")
       
 #Reference for confusion matrix: https://www.rdocumentation.org/packages/caret/versions/6.0-86/topics/confusionMatrix 
 ```
-Our KNN model confusion matrix produces a 90 % accuracy rate of predicting a highly rated move (a movie with an average vote above 7.5), which is a great improvement from the baserate of 8.1%. The sensitivity or true positive rate, when highly rated movies are accurately classified, is 1.7%, which is very low. However, the model's specificity is 99%, and false positive rate is 100% - 99% = 1%, which is very low, meaning the model rarely inaccurately classifies poorly rated movies as highly rated ones. 
+Our KNN model confusion matrix produces a 65 % accuracy rate of predicting a highly rated move (a movie with an average vote above 7.5), which is a great improvement from the baserate of 8.1%. The sensitivity or true positive rate, when highly rated movies are accurately classified, is 35%, which is very low. However, the model's specificity is 81%, and false positive rate is 100% - 81% = 19%, which is very low, meaning the model rarely inaccurately classifies poorly rated movies as highly rated ones. 
 
 The high accuracy and specificity show our model usually accurately classifies movie ratings, which is important in informing our business problem of deciding how to create a highly rated movie based on genre, budget, and runtime.
 
@@ -349,12 +407,19 @@ The high accuracy and specificity show our model usually accurately classifies m
 
 ## DT for Revenue {.tabset}
 
+### Hide
+
 The goal here is really to be able to create a model that can predict if a movie is going to generate at least $5 million in revenue. To do this, we're going to use C5.0, which will construct decision trees in two phases: First, it will generate a larger tree to loosely fit the data, and then it will be 'pruned' down to something more tightly fitting.
 
 ### Pre-processing:
 ```{r RevDT Pre-Processing I}
 movies = read.csv('./Movies.csv')
-movies = movies[1:1000,]
+length(movies[movies$revenue == 0, ]$budget) #most of the movies dont have any revenue
+movies[movies == "0"] <- NA
+movies[movies == "?"] <- NA
+movies <- movies[complete.cases(movies),]
+na.omit(movies)
+#movies = movies[1:1000,]
 #View(movies)
 #Lets add a new column to the dataset that turns movies that made less than $5,000,000 revenue into 0s, and 
 #movies that made more than $5,000,000 into 1s. This is what we want our model to be able to classify.
@@ -369,6 +434,7 @@ movies = movies %>%
 #Change to factors
 movies[2] = as.factor(movies$original_language)
 movies[25] = as.factor(movies$new_rev)
+movies[,c(8:24)] = lapply(movies[,c(8:24)], as.factor)
 movies$original_language <- fct_collapse(movies$original_language,
                         English = "English",
                         Other = c("Italian","French","German","Japanese")
@@ -401,7 +467,13 @@ dim(tune)
 
 ```{r RevDT Features}
 # Choose the features and classes
-features <- train[,c(-4,-(8:24),-25)] #dropping 4 and 25. 4 is the original revenue count, which could be used to perfectly predict the 0 or 1 value, which is column 25
+features <- train[,c(-4,-25)] #dropping 4 and 25. 4 is the original revenue count, which could be used to perfectly predict the 0 or 1 value, which is column 25
+summary(movies$revenue)
+```
+
+Baseline
+```{r}
+table(movies$new_rev)[2]/sum(table(movies$new_rev))
 ```
 
 ### Initial Model
@@ -453,7 +525,7 @@ movies_pred_tune = predict(movies_mdl,tune, type= "raw")
                 as.factor(tune$new_rev), 
                 dnn=c("Prediction", "Actual"), 
                 mode = "sens_spec"))
-table(tune$new_rev)
+#table(tune$new_rev)
 (movies_pred_tune_p = predict(movies_mdl,tune,type= "prob"))
 ```
 
@@ -526,7 +598,10 @@ It seems that the final model is decent. The accuracy stayed relatively similar,
 
 
 
+
 ## RF for Revenue {.tabset}
+
+### Hide
 
 ### Pre-processing
 ```{r RevRF Preprocessing}
@@ -546,6 +621,12 @@ movies[2] = as.factor(movies$original_language)
 movies[25] = as.factor(movies$new_rev)
 #boolean to factor:
 movies[,c(8:24)] = lapply(movies[,c(8:24)], as.factor)
+movies = movies[,-c(6)]
+```
+Baseline
+```{r}
+table(movies$new_rev)[2]/sum(table(movies$new_rev))
+#baseline of 90%. Lets see if our model has a higher accuracy than this
 ```
 
 ### Partitioning
@@ -672,3 +753,12 @@ fig <- fig %>% add_trace(y=movies_RF_error$`<$1M`, name="<$1M")
 fig <- fig %>% add_trace(y=movies_RF_error$`>$1M`, name=">$1M")
 fig
 ```
+## Conclusion
+### Fairness Assessment
+Our model does not use any protected classes, but the language of a movie could present some potential bias. Moviegoers might be less inclined to go see a movie in a different language than their own, and seeing as this dataset is in english, its safe to say that most of the voters spoke english but might not have spoken other languages. As such, this model should not be considered a globally reliable model.
+
+### Summary 
+In the end, all of our final models performed better than baseline, meaning that we could find some use for them in the movie industry. The average vote metric itself seemed to be more difficult to optimize for than revenue, which makes sense considering the budget parameter was strongly correlated to revenue but not to average vote. In the end, what makes a movie good or bad are the people behind it. A compelling performance can't be quantified so easily as budget, and a good script would take a lot longer to unpack than runtime. Regardless, the models we produced could still find some use in the movie industry to help directors and studios figure out which genre of movie they want to make, or how much money to invest in a particular project.
+
+### Future Work
+One thing I would be interested in looking into in the future is if we could do a sentiment analysis on movie scripts to determine the effect of general movie sentiment on success. I hypothesize that movies that are too dark or too upbeat would do worse critcially than balanced movies. It would also be fascinating to see if the genre of a movie could be predictive of different quantifications of the scripts such as word count, word complexity, and sentiment. Another future project could involve an analysis of the top movie studios, and whether data such as scripts and genres seems to cluster for each individual production company or studio. This type of information could help inform smaller studios how to become successful and give them good outlines for movie strucutre.
